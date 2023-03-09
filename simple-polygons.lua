@@ -16,13 +16,13 @@ function Polygon:new ()
   return o
 end
 
-function Polygon:sorted_cw(v)
-  local index = ((self._sorted[v] - 2) % #self) + 1
+function Polygon:cw(v)
+  local index = (v % #self) + 1
   return index
 end
 
-function Polygon:sorted_ccw(v)
-  local index  = (self._sorted[v] % #self) + 1
+function Polygon:ccw(v)
+  local index = ((v - 2) % #self) + 1
   return index
 end
 
@@ -47,16 +47,38 @@ function Polygon:sorted(i)
   return self._sorted[i]
 end
 
+function Polygon:check_orientation()
+  local b = self[1]
+  local b_index = 1
+  for i, v in ipairs(self) do
+    if v.y < b.y then
+      b = v
+      b_index = i
+    end
+  end
+  local a = self[self:cw(b_index)]
+  local c = self[self:ccw(b_index)]
+  local abc_det = (b.x*c.y+a.x*b.y+c.x*a.y) - (b.x*a.y+c.x*b.y+a.x*c.y)
+  if abc_det < 0 then
+    local size = #self
+    for i=1,math.floor(size / 2) do
+      local temp = self[i]
+      self[i] = self[size + 1 - i]
+      self[size + 1 - i] = temp
+    end
+  end
+end
+
 function make_vertices(model)local page = model:page()
   local prim = page:primarySelection()
   if not prim then model.ui:explain("no selection") return end
 
   local obj = page[prim]
-  if obj:type() ~= "path" then incorrect(model) return end
+  if obj:type() ~= "path" then model:warning('Primary selection is not a path') return end
 
   local shape = obj:shape()
   if (#shape ~= 1 or shape[1].type ~= "curve") then
-    incorrect(model)
+    model:warning('Primary selection is not a single curve')
     return
   end
 
@@ -67,6 +89,7 @@ function make_vertices(model)local page = model:page()
   for _, line in ipairs(shape[1]) do
     table.insert(vertices, m * line[2])
   end
+  vertices:check_orientation()
   return vertices
 end
 
@@ -127,8 +150,8 @@ function trapezoidalize(vertices, model)
   local trapezoids = {by_bottom = {}, by_top = {}, by_edge = {}}
   for i = 1, #vertices do
     local v = vertices[vertices:sorted(i)]
-    local u = vertices[vertices:sorted_cw(i)]
-    local w = vertices[vertices:sorted_ccw(i)]
+    local u = vertices[vertices:ccw(vertices:sorted(i))]
+    local w = vertices[vertices:cw(vertices:sorted(i))]
     local inside, next_edge_i = is_inside(edges, v, false and model)
     local left_edge = edges[next_edge_i-1]
     local right_edge = edges[next_edge_i] -- Because of tie breaking, sometimes this is the intersecting edge
