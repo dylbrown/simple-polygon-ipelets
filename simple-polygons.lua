@@ -174,6 +174,56 @@ function trapezoidalize_and_draw(model)
   model:creation("Trapezoidalize", ipe.Group(actual_trapezoids))
 end
 
+function make_trapezoid_curve(vertices, t, model)
+  local p = vertices[t.bottom]
+  local q = vertices[t.top]
+  local p_cross_1 = ipe.Line(p, ipe.Vector(1, 0)):intersects(t.bottom_far[1]:line())
+
+  -- These three may or may not exist depending on the situation, hence the conditionals
+  local p_cross_2 = #t.bottom_far > 1 and ipe.Line(p, ipe.Vector(1, 0)):intersects(t.bottom_far[2]:line())
+  local q_cross_1 = #t.top_far > 0 and ipe.Line(q, ipe.Vector(1, 0)):intersects(t.top_far[1]:line())
+  local q_cross_2 = #t.top_far > 1 and ipe.Line(q, ipe.Vector(1, 0)):intersects(t.top_far[2]:line())
+
+  local curve = {type="curve"; closed=true}
+  local p2_next_to_q = false
+  if p_cross_1 ~= p then
+    table.insert(curve, {type="segment"; p_cross_1, p})
+    if p_cross_2 then
+      table.insert(curve, {type="segment"; p, p_cross_2})
+      p = p_cross_2
+      local a, b = t.bottom_far[2]:endpoints()
+      p2_next_to_q = a == q or b == q
+    end
+  end
+  if q_cross_1 then
+    if (vertices:are_adjacent(t.bottom, t.top)) or p2_next_to_q then
+      table.insert(curve, {type="segment"; p, q})
+      table.insert(curve, {type="segment"; q, q_cross_1})
+    else
+      if q_cross_2 then
+        if t.bottom_far[1] == t.top_far[2] then
+          table.insert(curve, {type="segment"; p, q_cross_1})
+          table.insert(curve, {type="segment"; q_cross_1, q})
+          table.insert(curve, {type="segment"; q, q_cross_2})
+        else
+          table.insert(curve, {type="segment"; p, q_cross_2})
+          table.insert(curve, {type="segment"; q_cross_2, q})
+          table.insert(curve, {type="segment"; q, q_cross_1})
+        end
+      else
+        table.insert(curve, {type="segment"; p, q_cross_1})
+        table.insert(curve, {type="segment"; q_cross_1, q})
+      end
+    end
+  elseif p and q then
+    table.insert(curve, {type="segment"; p, q})
+  end
+  if #curve == 0 then
+    model:warning("Bad Drawing!", p.x..","..p.y.." - "..q.x..","..q.y)
+  end
+  return {curve}
+end
+
 -----------------------------------------------------
 -- Triangulation Functionality
 -----------------------------------------------------
@@ -335,56 +385,6 @@ function trapezoidalize(vertices, model)
     end
   end
   return trapezoids
-end
-
-function make_trapezoid_curve(vertices, t, model)
-  local p = vertices[t.bottom]
-  local q = vertices[t.top]
-  local p_cross_1 = ipe.Line(p, ipe.Vector(1, 0)):intersects(t.bottom_far[1]:line())
-
-  -- These three may or may not exist depending on the situation, hence the conditionals
-  local p_cross_2 = #t.bottom_far > 1 and ipe.Line(p, ipe.Vector(1, 0)):intersects(t.bottom_far[2]:line())
-  local q_cross_1 = #t.top_far > 0 and ipe.Line(q, ipe.Vector(1, 0)):intersects(t.top_far[1]:line())
-  local q_cross_2 = #t.top_far > 1 and ipe.Line(q, ipe.Vector(1, 0)):intersects(t.top_far[2]:line())
-
-  local curve = {type="curve"; closed=true}
-  local p2_next_to_q = false
-  if p_cross_1 ~= p then
-    table.insert(curve, {type="segment"; p_cross_1, p})
-    if p_cross_2 then
-      table.insert(curve, {type="segment"; p, p_cross_2})
-      p = p_cross_2
-      local a, b = t.bottom_far[2]:endpoints()
-      p2_next_to_q = a == q or b == q
-    end
-  end
-  if q_cross_1 then
-    if (vertices:are_adjacent(t.bottom, t.top)) or p2_next_to_q then
-      table.insert(curve, {type="segment"; p, q})
-      table.insert(curve, {type="segment"; q, q_cross_1})
-    else
-      if q_cross_2 then
-        if t.bottom_far[1] == t.top_far[2] then
-          table.insert(curve, {type="segment"; p, q_cross_1})
-          table.insert(curve, {type="segment"; q_cross_1, q})
-          table.insert(curve, {type="segment"; q, q_cross_2})
-        else
-          table.insert(curve, {type="segment"; p, q_cross_2})
-          table.insert(curve, {type="segment"; q_cross_2, q})
-          table.insert(curve, {type="segment"; q, q_cross_1})
-        end
-      else
-        table.insert(curve, {type="segment"; p, q_cross_1})
-        table.insert(curve, {type="segment"; q_cross_1, q})
-      end
-    end
-  elseif p and q then
-    table.insert(curve, {type="segment"; p, q})
-  end
-  if #curve == 0 then
-    model:warning("Bad Drawing!", p.x..","..p.y.." - "..q.x..","..q.y)
-  end
-  return {curve}
 end
 
 -- Returns if inside, and the index of the first edge not strictly to the left of the point
