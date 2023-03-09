@@ -9,6 +9,8 @@ Various algorithms run on simple polygons
 ]]
 Polygon = {}
 
+TWO_PI = 2 * math.pi
+
 function Polygon:new ()
   local o = {}
   _G.setmetatable(o, self)
@@ -97,16 +99,90 @@ function triangulate(model)
   local vertices = make_vertices(model)
   if vertices == nil then return end
   local trapezoids = trapezoidalize(vertices, model)
-  local trapezoid_crosses = {}
+  local new_edges = {}
+  --local trapezoid_crosses = {}
   for _, t in ipairs(trapezoids) do
     if not vertices:are_adjacent(t.bottom, t.top) then
+      new_edges[t.bottom] = new_edges[t.bottom] or {vertices:ccw(t.bottom), vertices:cw(t.bottom)}
+      table.insert(new_edges[t.bottom], t.top)
+      new_edges[t.top] = new_edges[t.top] or {vertices:ccw(t.top), vertices:cw(t.top)}
+      table.insert(new_edges[t.top], t.bottom)
+
+      --[[ Drawing
       local path = ipe.Path(model.attributes, {{type="curve"; closed=false;
           {type="segment"; vertices[t.bottom], vertices[t.top]}
         }})
-      table.insert(trapezoid_crosses, path)
+      table.insert(trapezoid_crosses, path)]]
     end
   end
-  model:creation("Slice Trapezoids", ipe.Group(trapezoid_crosses))
+  --model:creation("Slice Trapezoids", ipe.Group(trapezoid_crosses))
+
+  for v, neighbours in pairs(new_edges) do
+    local u = vertices:ccw(v)
+    local base_angle  = math.atan(vertices[u].y - vertices[v].y, vertices[u].x - vertices[v].x) % TWO_PI
+    table.sort(neighbours, function (a, b)
+        local a_angle = math.atan(vertices[a].y - vertices[v].y, vertices[a].x - vertices[v].x)
+        local b_angle = math.atan(vertices[b].y - vertices[v].y, vertices[b].x - vertices[v].x)
+        a_angle = ((a_angle % TWO_PI) + TWO_PI - base_angle) % TWO_PI
+        b_angle = ((b_angle % TWO_PI) + TWO_PI - base_angle) % TWO_PI
+        if a == u then a_angle = 0 end
+        if b == u then b_angle = 0 end
+        return a_angle < b_angle
+      end)
+  end
+
+  local subpolygons = {}
+  local subpolygon_paths = {}
+  local visited_out = {}
+  for v = 1, #vertices do
+    if not visited_out[v] then
+      visited_out[v] = true
+      local p = make_subpolygon(model, new_edges, visited_out, vertices, v)
+      table.insert(subpolygons, p)
+      table.insert(subpolygon_paths, p.path)
+    end
+  end
+  model:creation("Create subpolygons", ipe.Group(subpolygon_paths))
+end
+
+function make_subpolygon(model, new_edges, visited_out, vertices, start)
+  local p = {}
+  local curve = {type="curve"; closed=true}
+  table.insert(p, start)
+  local prev = start
+  local curr = vertices:cw(start)
+  while curr ~= start do
+    table.insert(p, curr)
+    table.insert(curve, {type="segment"; vertices[prev], vertices[curr]})
+    if new_edges[curr] then
+      for i, w in ipairs(new_edges[curr]) do
+        if w == prev then
+          local next = new_edges[curr][i + 1]
+          if next == vertices:cw(curr) then
+            visited_out[curr] = true
+          end
+          if not new_edges[curr][i+1] then
+            model:warning("Failed on the last edge at "..i, vertices[prev].x..","..vertices[prev].y.."->"..vertices[curr].x..","..vertices[curr].y)
+            for i, test in ipairs(new_edges[curr]) do  
+              model:creation("boop", ipe.Path(model.attributes, {{type="curve"; closed=false;
+              {type="segment"; vertices[curr], vertices[test]}
+            }}))
+              model:warning("Pair "..i, vertices[test].x..","..vertices[test].y)
+            end
+          end
+          prev = curr
+          curr = next
+          break
+        end
+      end
+    else
+      visited_out[curr] = true
+      prev = curr
+      curr = vertices:cw(curr)
+    end
+  end
+  p.path = ipe.Path(model.attributes, {curve})
+  return p
 end
 
 function trapezoidalize_and_draw(model)
