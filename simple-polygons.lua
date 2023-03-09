@@ -7,6 +7,10 @@ label = "Simple Polygons"
 about = [[
 Various algorithms run on simple polygons
 ]]
+
+-----------------------------------------------------
+-- Polygon Class
+-----------------------------------------------------
 Polygon = {}
 
 TWO_PI = 2 * math.pi
@@ -95,54 +99,24 @@ function make_vertices(model)local page = model:page()
   return vertices
 end
 
-function triangulate(model)
+-----------------------------------------------------
+-- Triangulate Ipelet
+-----------------------------------------------------
+
+function triangulate_and_draw(model)
   local vertices = make_vertices(model)
   if vertices == nil then return end
-  local trapezoids = trapezoidalize(vertices, model)
-  local new_edges = {}
-  --local trapezoid_crosses = {}
-  for _, t in ipairs(trapezoids) do
-    if not vertices:are_adjacent(t.bottom, t.top) then
-      new_edges[t.bottom] = new_edges[t.bottom] or {vertices:ccw(t.bottom), vertices:cw(t.bottom)}
-      table.insert(new_edges[t.bottom], t.top)
-      new_edges[t.top] = new_edges[t.top] or {vertices:ccw(t.top), vertices:cw(t.top)}
-      table.insert(new_edges[t.top], t.bottom)
-
-      --[[ Drawing
-      local path = ipe.Path(model.attributes, {{type="curve"; closed=false;
-          {type="segment"; vertices[t.bottom], vertices[t.top]}
-        }})
-      table.insert(trapezoid_crosses, path)]]
+  local monotones = triangulate(vertices, model)
+  
+  local monotone_paths = {}
+  for _, monotone in ipairs(monotones) do
+    local curve = {type="curve"; closed=true}
+    for i = 1,#monotone-1 do
+      table.insert(curve, {type="segment"; vertices[monotone[i]], vertices[monotone[i+1]]})
     end
+    table.insert(monotone_paths, ipe.Path(model.attributes, {curve}))
   end
-  --model:creation("Slice Trapezoids", ipe.Group(trapezoid_crosses))
-
-  for v, neighbours in pairs(new_edges) do
-    local u = vertices:ccw(v)
-    local base_angle  = math.atan(vertices[u].y - vertices[v].y, vertices[u].x - vertices[v].x) % TWO_PI
-    table.sort(neighbours, function (a, b)
-        local a_angle = math.atan(vertices[a].y - vertices[v].y, vertices[a].x - vertices[v].x)
-        local b_angle = math.atan(vertices[b].y - vertices[v].y, vertices[b].x - vertices[v].x)
-        a_angle = ((a_angle % TWO_PI) + TWO_PI - base_angle) % TWO_PI
-        b_angle = ((b_angle % TWO_PI) + TWO_PI - base_angle) % TWO_PI
-        if a == u then a_angle = 0 end
-        if b == u then b_angle = 0 end
-        return a_angle < b_angle
-      end)
-  end
-
-  local subpolygons = {}
-  local subpolygon_paths = {}
-  local visited_out = {}
-  for v = 1, #vertices do
-    if not visited_out[v] then
-      visited_out[v] = true
-      local p = make_subpolygon(model, new_edges, visited_out, vertices, v)
-      table.insert(subpolygons, p)
-      table.insert(subpolygon_paths, p.path)
-    end
-  end
-  model:creation("Create subpolygons", ipe.Group(subpolygon_paths))
+  model:creation("Create monotone subpolygons", ipe.Group(monotone_paths))
 end
 
 function make_subpolygon(model, new_edges, visited_out, vertices, start)
@@ -185,6 +159,10 @@ function make_subpolygon(model, new_edges, visited_out, vertices, start)
   return p
 end
 
+-----------------------------------------------------
+-- Trapezoidalize Ipelet
+-----------------------------------------------------
+
 function trapezoidalize_and_draw(model)
   local vertices = make_vertices(model)
   local trapezoids = trapezoidalize(vertices, model)
@@ -194,6 +172,83 @@ function trapezoidalize_and_draw(model)
     table.insert(actual_trapezoids, path)
   end
   model:creation("Trapezoidalize", ipe.Group(actual_trapezoids))
+end
+
+-----------------------------------------------------
+-- Triangulation Functionality
+-----------------------------------------------------
+
+function triangulate(vertices, model)
+  local trapezoids = trapezoidalize(vertices, model)
+
+  -- Work out all the cross edges
+  local new_edges = {}
+  for _, t in ipairs(trapezoids) do
+    if not vertices:are_adjacent(t.bottom, t.top) then
+      new_edges[t.bottom] = new_edges[t.bottom] or {vertices:ccw(t.bottom), vertices:cw(t.bottom)}
+      table.insert(new_edges[t.bottom], t.top)
+      new_edges[t.top] = new_edges[t.top] or {vertices:ccw(t.top), vertices:cw(t.top)}
+      table.insert(new_edges[t.top], t.bottom)
+    end
+  end
+
+  -- Sort cross edge lists by angle
+  local compute_angle = function(src, dest, base_angle, base_vtx)
+    local angle = math.atan(vertices[dest].y - vertices[src].y, vertices[dest].x - vertices[src].x) % TWO_PI
+    if base_angle and base_vtx then
+      angle = ((angle % TWO_PI) + TWO_PI - base_angle) % TWO_PI
+      if dest == base_vtx then angle = 0 end
+    end
+    return angle
+  end
+  for v, neighbours in pairs(new_edges) do
+    local base = vertices:ccw(v)
+    local base_angle  = compute_angle(v, base)
+    table.sort(neighbours, function (a, b)
+        return compute_angle(v, a, base_angle, base) < compute_angle(v, b, base_angle, base)
+      end)
+  end
+
+  -- Go through each outside edge and compute its subpolygon
+  -- visited[i] = true means we've visited the edge (i, i+1)
+  local subpolygons = {}
+  local visited_out = {}
+  for v = 1, #vertices do
+    if not visited_out[v] then
+      visited_out[v] = true
+      local p = make_subpolygon(model, new_edges, visited_out, vertices, v)
+      table.insert(subpolygons, p)
+    end
+  end
+  return subpolygons
+end
+
+function make_subpolygon(model, new_edges, visited_out, vertices, start)
+  local p = {}
+  table.insert(p, start)
+  local prev = start
+  local curr = vertices:cw(start)
+  while curr ~= start do
+    table.insert(p, curr)
+    if new_edges[curr] then
+      for i, w in ipairs(new_edges[curr]) do
+        if w == prev then
+          local next = new_edges[curr][i + 1]
+          if next == vertices:cw(curr) then
+            visited_out[curr] = true
+          end
+          prev = curr
+          curr = next
+          break
+        end
+      end
+    else
+      visited_out[curr] = true
+      prev = curr
+      curr = vertices:cw(curr)
+    end
+  end
+  return p
 end
 
 Trapezoid = {bottom = 0, bottom_far = {}, top = nil, top_far = {}}
@@ -358,7 +413,7 @@ end
 
 methods = {
   { label="Trapezoidalize", run = trapezoidalize_and_draw },
-  { label="Triangulate", run = triangulate },
+  { label="Triangulate", run = triangulate_and_draw },
 }
 
 ----------------------------------------------------------------------
