@@ -79,6 +79,21 @@ function Polygon:compute_angle(src, dest, base_angle, base_vtx)
   return angle
 end
 
+function Polygon:locate_point(p)
+  if not self.triangles then self:triangulate() end
+  local function in_side(a, b, third)
+    local line = ipe.LineThrough(self[a], self[b])
+    local in_side = line:side(self[third])
+    local p_side = line:side(p)
+    return p_side == 0 or p_side == in_side
+  end
+  for _, t in pairs(self.triangles) do
+    if in_side(t[1],t[2],t[3]) and in_side(t[2],t[3],t[1]) and in_side(t[3],t[1],t[2]) then
+      return t
+    end
+  end
+end
+
 -----------------------------------------------------
 -- Triangulation
 -----------------------------------------------------

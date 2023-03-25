@@ -46,8 +46,10 @@ end
 
 -- Hack to allow hot reloading. Might add cleverer logic to ipe's main.lua in future
 _G.package.loaded['util.polygon'] = nil
+_G.package.loaded['util.spt'] = nil
 _G.package.loaded['util.vis-graph'] = nil
 local Polygon = _G.require("util.polygon")
+local SPT = _G.require("util.spt")
 local VisGraph = _G.require("util.vis-graph")
 
 function make_vertices(model, make_edges)
@@ -58,6 +60,38 @@ function make_vertices(model, make_edges)
   local obj = page[prim]
   if obj:type() ~= "path" then model:warning('Primary selection is not a path') return end
 
+  return make_vertices_helper(obj, model, make_edges)
+end
+
+function make_vertices_and_point(model, make_edges)
+  local selection = {}
+
+  
+  for _, obj, sel, _ in model:page():objects() do
+    if sel then table.insert(selection, obj) end
+  end
+
+  if #selection ~= 2 then
+    model.ui:explain("Must select 2 things")
+    return
+  end
+  local path, point
+  for i = 1,2 do
+    if selection[i]:type() == "path" then path = selection[i] end
+    if selection[i]:type() == "reference" then point = selection[i] end
+  end
+
+  if not path or not point then
+    model.ui:explain("Must select 1 path and 1 point")
+    return
+  end
+
+  local vertices, edges = make_vertices_helper(path, model, make_edges)
+
+  return vertices, point:position(), edges
+end
+
+function make_vertices_helper(obj, model, make_edges)
   local shape = obj:shape()
   if (#shape ~= 1 or shape[1].type ~= "curve") then
     model:warning('Primary selection is not a single curve')
@@ -79,9 +113,25 @@ function make_vertices(model, make_edges)
 end
 
 -----------------------------------------------------
--- Shortest Path Map Ipelet
+-- Shortest Path Tree Ipelet
 -----------------------------------------------------
 
+function spt_and_draw(model)
+  _G.curr_model = model
+  local vertices, point, edges = make_vertices_and_point(model, true)
+  if not vertices or not point then return end
+  vertices:triangulate()
+  local spt = SPT:new(vertices, point, edges)
+  spt:generate()
+  local paths = {}
+  for v = 1, #vertices do
+    local u = spt.graph[v]
+    local start = (u > 0 and vertices[u]) or point
+    local curve = {type="curve"; closed=false; {type="segment"; start, vertices[v]}}
+    table.insert(paths, ipe.Path(model.attributes, {curve}))
+  end
+  model:creation("Visbiility Graph", ipe.Group(paths))
+end
 
 -----------------------------------------------------
 -- Visibility Graph Ipelet
@@ -195,6 +245,7 @@ methods = {
   { label="Trapezoidalize", run = trapezoidalize_and_draw },
   { label="Triangulate", run = triangulate_and_draw },
   { label="Visibility Graph", run = vis_and_draw },
+  { label="Shortest Path Tree", run = spt_and_draw },
 }
 
 ----------------------------------------------------------------------
