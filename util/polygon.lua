@@ -71,10 +71,16 @@ if self:left_turn_test(a, b_index, c) then
 end
 
 function Polygon:compute_angle(src, dest, base_angle, base_vtx)
-  local angle = math.atan(self[dest].y - self[src].y, self[dest].x - self[src].x) % TWO_PI
+  local dest_vtx = dest
+  local vtx_vtx = false
+  if type(dest) == 'number' then
+    dest_vtx = self[dest]
+    vtx_vtx = true
+  end
+  local angle = math.atan(dest_vtx.y - self[src].y, dest_vtx.x - self[src].x) % TWO_PI
   if base_angle and base_vtx then
     angle = ((angle % TWO_PI) + TWO_PI - base_angle) % TWO_PI
-    if dest == base_vtx then angle = 0 end
+    if vtx_vtx and dest == base_vtx then angle = 0 end
   end
   return angle
 end

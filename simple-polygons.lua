@@ -113,6 +113,105 @@ function make_vertices_helper(obj, model, make_edges)
 end
 
 -----------------------------------------------------
+-- Shortest Path Equivalency Map Ipelet
+-----------------------------------------------------
+
+function spem_and_draw(model)
+  _G.curr_model = model
+  local vertices, edges = make_vertices(model, true)
+  if not vertices then return end
+  vertices:triangulate()
+
+  local paths = {}
+  for i = 1, #vertices do
+    local spt = SPT:new(vertices, i, edges)
+    spt:generate()
+
+    for v = 1, #vertices do
+      local u = spt.graph[v]
+      if u == nil then goto continue end
+      local u_vtx = vertices[u]
+      local line = ipe.LineThrough(u_vtx, vertices[v])
+      local duv = (vertices[v] - u_vtx):len()
+      local opposite = nil
+      local min_distance = nil
+      for _, s in ipairs(spt.boundary) do
+        local x = s:intersects(line)
+        if x then
+          local du = (x-u_vtx):len()
+          local dv = (x-vertices[v]):len()
+          if duv < du and dv < du and (not min_distance or dv < min_distance) then
+            local prev = vertices:ccw(v)
+            local next = vertices:cw(v)
+            local min_angle = vertices:compute_angle(v, prev)
+            local max_angle = vertices:compute_angle(v, next, min_angle, prev)
+            local angle = vertices:compute_angle(v, x, min_angle, u)
+            if angle < max_angle then
+              opposite = x
+              min_distance = dv
+            end
+          end
+        end
+      end
+      if opposite then
+        local curve = {type="curve"; closed=false; {type="segment"; vertices[v], opposite}}
+        table.insert(paths, ipe.Path(model.attributes, {curve}))
+      end
+      ::continue::
+    end
+  end
+
+  model:creation("SPEM", ipe.Group(paths))
+end
+
+-----------------------------------------------------
+-- Shortest Path Map Ipelet
+-----------------------------------------------------
+
+function spm_and_draw(model)
+  _G.curr_model = model
+  local vertices, point, edges = make_vertices_and_point(model, true)
+  if not vertices or not point then return end
+  vertices:triangulate()
+  local spt = SPT:new(vertices, point, edges)
+  spt:generate()
+
+  local paths = {}
+  for v = 1, #vertices do
+    local u = spt.graph[v]
+    local u_vtx = (u > 0 and vertices[u]) or point
+    local line = ipe.LineThrough(u_vtx, vertices[v])
+    local duv = (vertices[v] - u_vtx):len()
+    local opposite = nil
+    local min_distance = nil
+    for _, s in ipairs(spt.boundary) do
+      local x = s:intersects(line)
+      if x then
+        local du = (x-u_vtx):len()
+        local dv = (x-vertices[v]):len()
+        if duv < du and dv < du and (not min_distance or dv < min_distance) then
+          local prev = vertices:ccw(v)
+          local next = vertices:cw(v)
+          local min_angle = vertices:compute_angle(v, prev)
+          local max_angle = vertices:compute_angle(v, next, min_angle, prev)
+          local angle = vertices:compute_angle(v, x, min_angle, u)
+          if angle < max_angle then
+            opposite = x
+            min_distance = dv
+          end
+        end
+      end
+    end
+    if opposite then
+      local curve = {type="curve"; closed=false; {type="segment"; vertices[v], opposite}}
+      table.insert(paths, ipe.Path(model.attributes, {curve}))
+    end
+  end
+
+  model:creation("Shortest Path Map", ipe.Group(paths))
+end
+
+-----------------------------------------------------
 -- Shortest Path Tree Ipelet
 -----------------------------------------------------
 
@@ -150,7 +249,7 @@ function vis_and_draw(model)
       table.insert(paths, ipe.Path(model.attributes, {curve}))
     end
   end
-  model:creation("Visbiility Graph", ipe.Group(paths))
+  model:creation("Shortest Path Tree", ipe.Group(paths))
 end
 
 -----------------------------------------------------
@@ -246,6 +345,8 @@ methods = {
   { label="Triangulate", run = triangulate_and_draw },
   { label="Visibility Graph", run = vis_and_draw },
   { label="Shortest Path Tree", run = spt_and_draw },
+  { label="Shortest Path Map", run = spm_and_draw },
+  { label="Shortest Path Equivalency Map", run = spem_and_draw },
 }
 
 ----------------------------------------------------------------------
