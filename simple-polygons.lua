@@ -30,6 +30,17 @@ if not string.find(_G.package.path, ipelets_dir, 1, true) then
 end
 
 -----------------------------------------------------
+-- Logging
+-----------------------------------------------------
+
+_G.curr_model = nil
+_G.ipe_warn = function(...)
+  if _G.curr_model then
+    _G.curr_model:warning(...)
+  end
+end
+
+-----------------------------------------------------
 -- Imports
 -----------------------------------------------------
 
@@ -49,7 +60,6 @@ function make_vertices(model)local page = model:page()
     model:warning('Primary selection is not a single curve')
     return
   end
-
   local vertices = Polygon:new()
 
   local m = obj:matrix()
@@ -72,17 +82,19 @@ end
 function triangulate_and_draw(model)
   local vertices = make_vertices(model)
   if vertices == nil then return end
-  local monotones = vertices:triangulate(model)
+  local edges, monotones = vertices:triangulate()
   
-  local monotone_paths = {}
-  for _, monotone in ipairs(monotones) do
-    local curve = {type="curve"; closed=true}
-    for i = 1,#monotone-1 do
-      table.insert(curve, {type="segment"; vertices[monotone[i]], vertices[monotone[i+1]]})
+  local paths = {}
+  for u, edges in pairs(edges) do
+    for _, v in ipairs(edges) do
+      if u < v and not vertices:are_adjacent(u, v) then
+      local curve = {type="curve"; closed=false; {type="segment"; vertices[u], vertices[v]}}
+      table.insert(paths, ipe.Path(model.attributes, {curve}))
     end
     table.insert(monotone_paths, ipe.Path(model.attributes, {curve}))
   end
-  model:creation("Create monotone subpolygons", ipe.Group(monotone_paths))
+  end
+  model:creation("Triangulate", ipe.Group(paths))
 end
 
 -----------------------------------------------------
@@ -92,7 +104,7 @@ end
 function trapezoidalize_and_draw(model)
   local vertices = make_vertices(model)
   if not vertices then return end
-  local trapezoids = vertices:trapezoidalize(model)
+  local trapezoids = vertices:trapezoidalize()
   local actual_trapezoids = {}
   for _, t in ipairs(trapezoids) do
     local path = ipe.Path(model.attributes, make_trapezoid_curve(vertices, t, model))

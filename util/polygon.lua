@@ -68,7 +68,7 @@ end
 -- Triangulation
 -----------------------------------------------------
 
-local function make_subpolygon(model, new_edges, visited_out, vertices, start)
+local function make_subpolygon(new_edges, visit, vertices, start, first)
   local p = {}
   table.insert(p, start)
   local prev = start
@@ -96,8 +96,8 @@ local function make_subpolygon(model, new_edges, visited_out, vertices, start)
   return p
 end
 
-function Polygon:triangulate(model)
-  local trapezoids = self:trapezoidalize(model)
+function Polygon:triangulate()
+  local trapezoids = self:trapezoidalize()
 
   -- Work out all the cross edges
   local new_edges = {}
@@ -134,7 +134,7 @@ function Polygon:triangulate(model)
   for v = 1, #self do
     if not visited_out[v] then
       visited_out[v] = true
-      local p = make_subpolygon(model, new_edges, visited_out, self, v)
+      local p = make_subpolygon(edges_lookup, visit, self, v, self:cw(v))
       table.insert(subpolygons, p)
     end
   end
@@ -173,14 +173,14 @@ end
 -- Returns if inside, and the index of the first edge not strictly to the left of the point
 -- If the point is on the edge, it describes the region to the left
 -- Linear time, could totally be improved to logarithmic with binary search on a tree
-local function is_inside(edges, v, model)
-  if model then -- Debug tool - pass in model to get all these warnings
-    model:warning(v.x.. ", "..v.y)
+local function is_inside(edges, v)
+  if false then -- Debug tool
+    _G.ipe_warn(v.x.. ", "..v.y)
   end
   for index, edge in ipairs(edges) do
     p, q = edge:endpoints()
-    if model then -- Debug tool - pass in model to get all these warnings
-      model:warning("edge: ", p.x..","..p.y.." - "..q.x..","..q.y)
+    if false then -- Debug tool
+      _G.ipe_warn("edge: ", p.x..","..p.y.." - "..q.x..","..q.y)
     end
     if v == p or v == q then
       return index % 2 == 0, index
@@ -247,7 +247,7 @@ function Polygon:trapezoidalize(model)
     if false then -- logging
       for index, edge in ipairs(edges) do
         p, q = edge:endpoints()
-        model:warning(index, p.x..","..p.y.." - "..q.x..","..q.y)
+        _G.ipe_warn(index, p.x..","..p.y.." - "..q.x..","..q.y)
       end
     end
   end
