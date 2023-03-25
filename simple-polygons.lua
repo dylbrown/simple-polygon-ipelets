@@ -46,9 +46,12 @@ end
 
 -- Hack to allow hot reloading. Might add cleverer logic to ipe's main.lua in future
 _G.package.loaded['util.polygon'] = nil
+_G.package.loaded['util.vis-graph'] = nil
 local Polygon = _G.require("util.polygon")
+local VisGraph = _G.require("util.vis-graph")
 
-function make_vertices(model)local page = model:page()
+function make_vertices(model, make_edges)
+  local page = model:page()
   local prim = page:primarySelection()
   if not prim then model.ui:explain("no selection") return end
 
@@ -61,19 +64,44 @@ function make_vertices(model)local page = model:page()
     return
   end
   local vertices = Polygon:new()
+  local edges = make_edges and {}
 
   local m = obj:matrix()
   table.insert(vertices, m * shape[1][1][1])
   for _, line in ipairs(shape[1]) do
     table.insert(vertices, m * line[2])
+    if make_edges then
+      table.insert(edges, ipe.Segment(m * line[1], m * line[2]))
+    end
   end
   vertices:check_orientation()
-  return vertices
+  return vertices, edges
 end
 
 -----------------------------------------------------
 -- Shortest Path Map Ipelet
 -----------------------------------------------------
+
+
+-----------------------------------------------------
+-- Visibility Graph Ipelet
+-----------------------------------------------------
+
+function vis_and_draw(model)
+  local vertices, edges = make_vertices(model, true)
+  if not vertices then return end
+  local vis = VisGraph:new(vertices, edges)
+  vis:generate()
+  
+  local paths = {}
+  for u, can_see in ipairs(vis) do
+    for v, _ in pairs(can_see) do
+      local curve = {type="curve"; closed=false; {type="segment"; vertices[u], vertices[v]}}
+      table.insert(paths, ipe.Path(model.attributes, {curve}))
+    end
+  end
+  model:creation("Visbiility Graph", ipe.Group(paths))
+end
 
 -----------------------------------------------------
 -- Triangulate Ipelet
@@ -166,6 +194,7 @@ end
 methods = {
   { label="Trapezoidalize", run = trapezoidalize_and_draw },
   { label="Triangulate", run = triangulate_and_draw },
+  { label="Visibility Graph", run = vis_and_draw },
 }
 
 ----------------------------------------------------------------------
