@@ -42,6 +42,13 @@ function Polygon:sorted(i)
   return self._sorted[i]
 end
 
+function Polygon:left_turn_test(a, b, c)
+a = self[a]
+b = self[b]
+c = self[c]
+return (b.x*c.y+a.x*b.y+c.x*a.y) - (b.x*a.y+c.x*b.y+a.x*c.y) < 0
+end
+
 function Polygon:check_orientation()
   local b = self[1]
   local b_index = 1
@@ -51,10 +58,9 @@ function Polygon:check_orientation()
       b_index = i
     end
   end
-  local a = self[self:cw(b_index)]
-  local c = self[self:ccw(b_index)]
-  local abc_det = (b.x*c.y+a.x*b.y+c.x*a.y) - (b.x*a.y+c.x*b.y+a.x*c.y)
-  if abc_det < 0 then
+local a = self:cw(b_index)
+local c = self:ccw(b_index)
+if self:left_turn_test(a, b_index, c) then
     local size = #self
     for i=1,math.floor(size / 2) do
       local temp = self[i]
@@ -62,6 +68,15 @@ function Polygon:check_orientation()
       self[size + 1 - i] = temp
     end
   end
+end
+
+function Polygon:compute_angle(src, dest, base_angle, base_vtx)
+  local angle = math.atan(self[dest].y - self[src].y, self[dest].x - self[src].x) % TWO_PI
+  if base_angle and base_vtx then
+    angle = ((angle % TWO_PI) + TWO_PI - base_angle) % TWO_PI
+    if dest == base_vtx then angle = 0 end
+  end
+  return angle
 end
 
 -----------------------------------------------------
@@ -72,58 +87,76 @@ local function make_subpolygon(new_edges, visit, vertices, start, first)
   local p = {}
   table.insert(p, start)
   local prev = start
-  local curr = vertices:cw(start)
+  local curr = first
   while curr ~= start do
     table.insert(p, curr)
     if new_edges[curr] then
       for i, w in ipairs(new_edges[curr]) do
         if w == prev then
-          local next = new_edges[curr][i + 1]
-          if next == vertices:cw(curr) then
-            visited_out[curr] = true
-          end
+          local next = new_edges[curr][i + 1] or new_edges[curr][#new_edges[curr]]
+          visit(curr, next)
           prev = curr
           curr = next
           break
         end
       end
     else
-      visited_out[curr] = true
+      visit(curr, vertices:cw(curr))
       prev = curr
       curr = vertices:cw(curr)
     end
   end
-  return p
+
+  local min = 1
+  for i, v in ipairs(p) do
+    if vertices[v].y < vertices[p[min]].y then
+      min = i
+    end
+  end
+
+  -- Ensure first vertex is bottom vertex
+  local q = {}
+  for i = min,#p do
+    table.insert(q, p[i])
+  end
+  for i = 1,min-1 do
+    table.insert(q, p[i])
+  end
+
+  return q
 end
 
 function Polygon:triangulate()
   local trapezoids = self:trapezoidalize()
 
   -- Work out all the cross edges
-  local new_edges = {}
+  local edges_lookup = {}
+  local edges_tracker = {}
+  local connect = function(u, v)
+    edges_tracker[u] = edges_tracker[u] or {}
+    edges_tracker[u][self:cw(u)] = true
+    edges_tracker[u][self:ccw(u)] = true
+    if (edges_tracker[u] and edges_tracker[u][v]) or (edges_tracker[v] and edges_tracker[v][u]) then
+      return
+    end
+    edges_tracker[u][v] = true
+    edges_lookup[u] = edges_lookup[u] or {self:ccw(u), self:cw(u)}
+    table.insert(edges_lookup[u], v)
+    edges_lookup[v] = edges_lookup[v] or {self:ccw(v), self:cw(v)}
+    table.insert(edges_lookup[v], u)
+  end
   for _, t in ipairs(trapezoids) do
     if not self:are_adjacent(t.bottom, t.top) then
-      new_edges[t.bottom] = new_edges[t.bottom] or {self:ccw(t.bottom), self:cw(t.bottom)}
-      table.insert(new_edges[t.bottom], t.top)
-      new_edges[t.top] = new_edges[t.top] or {self:ccw(t.top), self:cw(t.top)}
-      table.insert(new_edges[t.top], t.bottom)
+      connect(t.bottom, t.top)
     end
   end
 
   -- Sort cross edge lists by angle
-  local compute_angle = function(src, dest, base_angle, base_vtx)
-    local angle = math.atan(self[dest].y - self[src].y, self[dest].x - self[src].x) % TWO_PI
-    if base_angle and base_vtx then
-      angle = ((angle % TWO_PI) + TWO_PI - base_angle) % TWO_PI
-      if dest == base_vtx then angle = 0 end
-    end
-    return angle
-  end
-  for v, neighbours in pairs(new_edges) do
+  for v, neighbours in pairs(edges_lookup) do
     local base = self:ccw(v)
-    local base_angle  = compute_angle(v, base)
+    local base_angle  = self:compute_angle(v, base)
     table.sort(neighbours, function (a, b)
-        return compute_angle(v, a, base_angle, base) < compute_angle(v, b, base_angle, base)
+        return self:compute_angle(v, a, base_angle, base) < self:compute_angle(v, b, base_angle, base)
       end)
   end
 
@@ -131,6 +164,11 @@ function Polygon:triangulate()
   -- visited[i] = true means we've visited the edge (i, i+1)
   local subpolygons = {}
   local visited_out = {}
+  local visit = function(u, v)
+    if v == self:cw(u) then
+      visited_out[u] = true
+    end
+  end
   for v = 1, #self do
     if not visited_out[v] then
       visited_out[v] = true
@@ -138,7 +176,35 @@ function Polygon:triangulate()
       table.insert(subpolygons, p)
     end
   end
-  return subpolygons
+  
+  -- Sort cross edge lists by angle again
+  for v, neighbours in pairs(edges_lookup) do
+    local base = self:ccw(v)
+    local base_angle  = self:compute_angle(v, base)
+    table.sort(neighbours, function (a, b)
+        return self:compute_angle(v, a, base_angle, base) < self:compute_angle(v, b, base_angle, base)
+      end)
+  end
+  local triangle_visited = {}
+  self.triangles = {}
+  local function visited(a, b)
+    return triangle_visited[a] and triangle_visited[a][b]
+  end
+  visit = function(a, b)
+    if a and b then
+      triangle_visited[a] = triangle_visited[a] or {}
+      triangle_visited[a][b] = true
+    end
+  end
+  for u, neighbours in pairs(edges_lookup) do
+    for _, v in ipairs(neighbours) do
+      if not visited(u, v) then
+        table.insert(self.triangles, make_subpolygon(edges_lookup, visit, self, u, v))
+      end
+    end
+  end
+
+  return edges_lookup, subpolygons
 end
 
 -----------------------------------------------------

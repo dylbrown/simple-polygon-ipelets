@@ -91,7 +91,6 @@ function triangulate_and_draw(model)
       local curve = {type="curve"; closed=false; {type="segment"; vertices[u], vertices[v]}}
       table.insert(paths, ipe.Path(model.attributes, {curve}))
     end
-    table.insert(monotone_paths, ipe.Path(model.attributes, {curve}))
   end
   end
   model:creation("Triangulate", ipe.Group(paths))
