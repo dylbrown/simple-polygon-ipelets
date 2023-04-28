@@ -1,6 +1,9 @@
 -----------------------------------------------------
 -- Polygon Class
 -----------------------------------------------------
+
+
+local Stack = _G.require("util.stack")
 local Polygon = {}
 local TWO_PI = 2 * math.pi
 
@@ -58,16 +61,18 @@ function Polygon:check_orientation()
       b_index = i
     end
   end
-local a = self:cw(b_index)
-local c = self:ccw(b_index)
-if self:left_turn_test(a, b_index, c) then
+  local a = self:cw(b_index)
+  local c = self:ccw(b_index)
+  if self:left_turn_test(a, b_index, c) then
     local size = #self
     for i=1,math.floor(size / 2) do
       local temp = self[i]
       self[i] = self[size + 1 - i]
       self[size + 1 - i] = temp
     end
+    return true
   end
+  return false
 end
 
 function Polygon:compute_angle(src, dest, base_angle, base_vtx)
@@ -197,6 +202,44 @@ function Polygon:triangulate()
       table.insert(subpolygons, p)
     end
   end
+
+  -- TODO: Go through subpolygons, triangulate and add their edges to edges_lookup
+  for _, p in ipairs(subpolygons) do
+    if #p > 3 then
+      local s = Stack:new()
+      if self[p[2]].y < self[p[#p]].y then
+        s:push(p[1], p[2])
+        for i = 3,#p do 
+          local c = p[i]
+          while s:size() >= 2 do
+            local b, a = s:top(2)
+            if self:left_turn_test(a, b, c) then
+              connect(a, c)
+              s:pop()
+            else
+              break
+            end
+          end
+          s:push(c)
+        end
+      else
+        s:push(p[1], p[#p])
+        for i = #p-1,2,-1 do 
+          local c = p[i]
+          while s:size() >= 2 do
+            local b, a = s:top(2)
+            if not self:left_turn_test(a, b, c) then
+              connect(a, c)
+              s:pop()
+            else
+              break
+            end
+          end
+          s:push(c)
+        end
+      end
+    end
+  end
   
   -- Sort cross edge lists by angle again
   for v, neighbours in pairs(edges_lookup) do
@@ -287,7 +330,7 @@ function Polygon:trapezoidalize(model)
     local v = self[self:sorted(i)]
     local u = self[self:ccw(self:sorted(i))]
     local w = self[self:cw(self:sorted(i))]
-    local inside, next_edge_i = is_inside(edges, v, false and model)
+    local inside, next_edge_i = is_inside(edges, v)
     local left_edge = edges[next_edge_i-1]
     local right_edge = edges[next_edge_i] -- Because of tie breaking, sometimes this is the intersecting edge
     local right_right_edge = edges[next_edge_i+1]

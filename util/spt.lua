@@ -1,5 +1,5 @@
 -----------------------------------------------------
--- Shortest Path Map
+-- Shortest Path Tree
 -----------------------------------------------------
 local Stack = _G.require("util.stack")
 local VisGraph = _G.require("util.vis-graph")

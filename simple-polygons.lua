@@ -47,9 +47,11 @@ end
 -- Hack to allow hot reloading. Might add cleverer logic to ipe's main.lua in future
 _G.package.loaded['util.polygon'] = nil
 _G.package.loaded['util.spt'] = nil
+_G.package.loaded['util.spem'] = nil
 _G.package.loaded['util.vis-graph'] = nil
 local Polygon = _G.require("util.polygon")
 local SPT = _G.require("util.spt")
+local SPEM = _G.require("util.spem")
 local VisGraph = _G.require("util.vis-graph")
 
 function make_vertices(model, make_edges)
@@ -108,7 +110,18 @@ function make_vertices_helper(obj, model, make_edges)
       table.insert(edges, ipe.Segment(m * line[1], m * line[2]))
     end
   end
-  vertices:check_orientation()
+  if make_edges then
+    table.insert(edges, ipe.Segment(vertices[#vertices], vertices[1]))
+  end
+  if vertices:check_orientation() and make_edges then
+    _G.ipe_warn("Flip")
+    local size = #edges
+    for i=1,math.floor(size / 2) do
+      local temp = edges[i]
+      edges[i] = edges[size + 1 - i]
+      edges[size + 1 - i] = temp
+    end
+  end
   return vertices, edges
 end
 
@@ -122,43 +135,14 @@ function spem_and_draw(model)
   if not vertices then return end
   vertices:triangulate()
 
-  local paths = {}
-  for i = 1, #vertices do
-    local spt = SPT:new(vertices, i, edges)
-    spt:generate()
+  local spem = SPEM:new(vertices, edges)
+  spem:generate()
 
-    for v = 1, #vertices do
-      local u = spt.graph[v]
-      if u == nil then goto continue end
-      local u_vtx = vertices[u]
-      local line = ipe.LineThrough(u_vtx, vertices[v])
-      local duv = (vertices[v] - u_vtx):len()
-      local opposite = nil
-      local min_distance = nil
-      for _, s in ipairs(spt.boundary) do
-        local x = s:intersects(line)
-        if x then
-          local du = (x-u_vtx):len()
-          local dv = (x-vertices[v]):len()
-          if duv < du and dv < du and (not min_distance or dv < min_distance) then
-            local prev = vertices:ccw(v)
-            local next = vertices:cw(v)
-            local min_angle = vertices:compute_angle(v, prev)
-            local max_angle = vertices:compute_angle(v, next, min_angle, prev)
-            local angle = vertices:compute_angle(v, x, min_angle, u)
-            if angle < max_angle then
-              opposite = x
-              min_distance = dv
-            end
-          end
-        end
-      end
-      if opposite then
-        local curve = {type="curve"; closed=false; {type="segment"; vertices[v], opposite}}
-        table.insert(paths, ipe.Path(model.attributes, {curve}))
-      end
-      ::continue::
-    end
+  local paths = {}
+  for _, seam in ipairs(spem.seams) do
+    p, q = seam:endpoints()
+    local curve = {type="curve"; closed=false; {type="segment"; p, q}}
+    table.insert(paths, ipe.Path(model.attributes, {curve}))
   end
 
   model:creation("SPEM", ipe.Group(paths))
@@ -194,7 +178,7 @@ function spm_and_draw(model)
           local next = vertices:cw(v)
           local min_angle = vertices:compute_angle(v, prev)
           local max_angle = vertices:compute_angle(v, next, min_angle, prev)
-          local angle = vertices:compute_angle(v, x, min_angle, u)
+          local angle = vertices:compute_angle(v, x, min_angle, prev)
           if angle < max_angle then
             opposite = x
             min_distance = dv
