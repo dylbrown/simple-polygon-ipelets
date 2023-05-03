@@ -48,10 +48,12 @@ end
 _G.package.loaded['util.polygon'] = nil
 _G.package.loaded['util.spt'] = nil
 _G.package.loaded['util.spem'] = nil
+_G.package.loaded['util.arrangement'] = nil
 _G.package.loaded['util.vis-graph'] = nil
 local Polygon = _G.require("util.polygon")
 local SPT = _G.require("util.spt")
 local SPEM = _G.require("util.spem")
+local Arrangement = _G.require("util.arrangement")
 local VisGraph = _G.require("util.vis-graph")
 
 function make_vertices(model, make_edges)
@@ -123,6 +125,58 @@ function make_vertices_helper(obj, model, make_edges)
     end
   end
   return vertices, edges
+end
+
+-----------------------------------------------------
+-- SPEM Cells Ipelet
+-----------------------------------------------------
+
+function spem_cells_and_draw(model)
+  _G.curr_model = model
+  local vertices, edges = make_vertices(model, true)
+  if not vertices then return end
+  vertices:triangulate()
+
+  local spem = SPEM:new(vertices, edges)
+  spem:generate()
+
+  local arrangement = Arrangement:new(spem.seams, Arrangement.Face:new(edges))
+  arrangement:generate(model)
+
+  local paths = {}
+  local centers = {}
+  local min_center = nil
+  local max_center = nil
+  for _, face in ipairs(arrangement.faces) do
+    local avg = ipe.Vector()
+    local pt_count = 0
+    local curve = {type="curve"; closed=false}
+    for _, edge in ipairs(face) do
+      p, q = edge:endpoints()
+      avg = avg + p
+      pt_count = pt_count + 1
+      table.insert(curve, {type="segment"; p, q})
+    end
+    avg = ipe.Vector(avg.x / pt_count, avg.y / pt_count)
+
+    local path = ipe.Path(model.attributes, {curve})
+    path:set('pathmode', 'strokedfilled')
+    table.insert(paths, path)
+
+    -- Distance computation
+    local spt = SPT:new(vertices, avg, edges)
+    spt:generate()
+    local distance = spt:vertex_dist2()
+    table.insert(centers, distance)
+    min_center = ((not min_center) and distance) or math.min(min_center, distance)
+    max_center = ((not max_center) and distance) or math.max(max_center, distance)
+  end
+
+  for i = 1, #arrangement.faces do
+    local s = 1 - ((centers[i] - min_center) / (max_center - min_center))
+    paths[i]:set('fill', {r=s;g=s;b=s})
+  end
+  model:creation("SPEM Cells", ipe.Group(paths))
 end
 
 -----------------------------------------------------
@@ -331,6 +385,7 @@ methods = {
   { label="Shortest Path Tree", run = spt_and_draw },
   { label="Shortest Path Map", run = spm_and_draw },
   { label="Shortest Path Equivalency Map", run = spem_and_draw },
+  { label="Shortest Path Equivalency Map Cells", run = spem_cells_and_draw },
 }
 
 ----------------------------------------------------------------------

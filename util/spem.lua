@@ -12,7 +12,7 @@ function SPEM:new(vertices, edges)
 end
 
 function SPEM:generate()
-    local seams = {}
+    local seams = {endpoints = {}, opposites = {}}
     local duplicate_data = {}
     local function duplicate_check(v, opposite)
       if not duplicate_data[v] then
@@ -57,6 +57,8 @@ function SPEM:generate()
         end
         if opposite and duplicate_check(v, opposite) then
           table.insert(seams, ipe.Segment(self.vertices[v], opposite))
+          table.insert(seams.endpoints, self.vertices[v])
+          table.insert(seams.opposites, opposite)
         end
         ::continue::
       end

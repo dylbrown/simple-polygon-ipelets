@@ -57,4 +57,20 @@ function SPT:generate()
     self.dist = dist
 end
 
+function SPT:vertex_dist1()
+    local total_distance = 0
+    for i = 1, #self.vertices do
+        total_distance = total_distance + self.dist[i]
+    end
+    return total_distance
+end
+
+function SPT:vertex_dist2()
+    local total_distance = 0
+    for i = 1, #self.vertices do
+        total_distance = total_distance + (self.dist[i] ^ 2)
+    end
+    return total_distance
+end
+
 return SPT
